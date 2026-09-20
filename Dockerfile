@@ -32,12 +32,13 @@ COPY nimble /opt/nimble-api/lib/python3.12/site-packages/nimble
 RUN useradd --create-home --shell /bin/bash appuser || true
 USER appuser
 
+# NOTE: no HF_ENDPOINT here — the SF GPU Function runtime auto-injects HF
+# proxy env (API downloads stay on the internal network) + blobcache. A baked
+# mirror URL could bypass that injection. Keep only the Xet disable: the Xet
+# CAS backend (*.hf.sc4.ai) is a separate endpoint the proxy may not cover,
+# and Xet disabled falls back to plain HTTP via the injected proxy.
 ENV PATH="/opt/nimble-api/bin:${PATH}" \
-    NIMBLE_MODEL_PATH=/mnt/files/models/nimble-9b-merged \
     NIMBLE_MAX_PROMPT_TOKENS=2048 \
-    HF_ENDPOINT=https://hf-mirror.com \
-    # hf-mirror only fronts plain HTTP; Xet middleware would bypass it and hit
-    # cas-server-xethub.hf.sc4.ai directly (unreachable from CN). Same fix as kev.
     HF_HUB_DISABLE_XET=1
 
 EXPOSE 8000
