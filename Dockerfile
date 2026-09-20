@@ -22,10 +22,11 @@ RUN uv venv /opt/nimble-api \
     && VIRTUAL_ENV=/opt/nimble-api uv pip install \
       "openjev-sglang @ https://github.com/ekzhang/openjev-sglang/archive/7f84bedc169439f03379c2fa8d00ada220af2295.tar.gz"
 
-# nimble source: installed no-deps (deps come via openjev-sglang above);
-# separate layer so source-only commits rebuild fast.
-COPY nimble ./nimble
-RUN VIRTUAL_ENV=/opt/nimble-api uv pip install --no-deps .
+# nimble source. NOTE: the repo is NOT a packaged project (no pyproject.toml /
+# setup.py — requirements/ layout, like upstream's modal deployment which
+# sys.path-mounts the source). So it cannot be `pip install .`-ed; drop the
+# package straight into the API venv's site-packages instead.
+COPY nimble /opt/nimble-api/lib/python3.12/site-packages/nimble
 
 # Non-root runtime (images in this family run as root by default).
 RUN useradd --create-home --shell /bin/bash appuser || true
@@ -34,7 +35,10 @@ USER appuser
 ENV PATH="/opt/nimble-api/bin:${PATH}" \
     NIMBLE_MODEL_PATH=/mnt/files/models/nimble-9b-merged \
     NIMBLE_MAX_PROMPT_TOKENS=2048 \
-    HF_ENDPOINT=https://hf-mirror.com
+    HF_ENDPOINT=https://hf-mirror.com \
+    # hf-mirror only fronts plain HTTP; Xet middleware would bypass it and hit
+    # cas-server-xethub.hf.sc4.ai directly (unreachable from CN). Same fix as kev.
+    HF_HUB_DISABLE_XET=1
 
 EXPOSE 8000
 # The SF cloud-function yaml overrides `command` (see deploy/nimble-9b-4090.yaml
