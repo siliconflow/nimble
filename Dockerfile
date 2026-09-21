@@ -22,6 +22,14 @@ RUN uv venv /opt/nimble-api \
     && VIRTUAL_ENV=/opt/nimble-api uv pip install \
       "openjev-sglang @ https://github.com/ekzhang/openjev-sglang/archive/7f84bedc169439f03379c2fa8d00ada220af2295.tar.gz"
 
+# Merge side: the SGlang venv already ships torch + transformers; add peft/
+# accelerate so bootstrap.py can run merge_local_adapter (upstream's own merge
+# tool, contract-checked) in that venv. Pinned to the versions the adapter was
+# trained with (schema_config.json `versions`). Not installed into the API
+# venv — /opt/nimble-api stays torch-free.
+RUN uv pip install --python /opt/sglang/bin/python \
+      peft==0.21.0 accelerate==1.15.0
+
 # nimble source. NOTE: the repo is NOT a packaged project (no pyproject.toml /
 # setup.py — requirements/ layout, like upstream's modal deployment which
 # sys.path-mounts the source). So it cannot be `pip install .`-ed; drop the
@@ -39,9 +47,13 @@ USER appuser
 # and Xet disabled falls back to plain HTTP via the injected proxy.
 ENV PATH="/opt/nimble-api/bin:${PATH}" \
     NIMBLE_MAX_PROMPT_TOKENS=2048 \
+    NIMBLE_MERGED_DIR=/workspace/nimble-merged \
+    NIMBLE_MS_CACHE=/workspace/ms-cache \
     HF_HUB_DISABLE_XET=1
 
 EXPOSE 8000
 # The SF cloud-function yaml overrides `command` (see deploy/nimble-9b-4090.yaml
-# in os_jev_exp). server.py hardcodes the backend python (/opt/sglang/bin/python).
-CMD ["python", "-m", "nimble.serving.server"]
+# in os_jev_exp). bootstrap.py downloads base (ModelScope) + adapter (HF via the
+# injected proxy), merges in the SGlang venv, then execs nimble.serving.server
+# (which itself hardcodes the backend python at /opt/sglang/bin/python).
+CMD ["python", "-m", "nimble.serving.bootstrap"]
