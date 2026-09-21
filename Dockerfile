@@ -37,7 +37,13 @@ RUN uv pip install --python /opt/sglang/bin/python \
 COPY nimble /opt/nimble-api/lib/python3.12/site-packages/nimble
 
 # Non-root runtime (images in this family run as root by default).
-RUN useradd --create-home --shell /bin/bash appuser || true
+# /workspace is auto-created by WORKDIR as root:root 755 — MUST be chowned
+# to appuser, or the very first write in bootstrap.py (os.makedirs under
+# NIMBLE_MS_CACHE/NIMBLE_MERGED_DIR, both under /workspace) dies with
+# PermissionError and the pod crashloops before the log collector attaches
+# ("unable to retrieve container logs", no other output).
+RUN useradd --create-home --shell /bin/bash appuser || true \
+    && chown appuser:appuser /workspace
 USER appuser
 
 # NOTE: no HF_ENDPOINT here — the SF GPU Function runtime auto-injects HF
