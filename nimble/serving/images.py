@@ -23,13 +23,10 @@ With NIMBLE_IMAGES unset, none of this module is imported and every request
 takes the stock EvaluationService path - prompts, token budgets, logprob reads
 are byte-identical.
 
-Gate-off refusal: a state that still carries `state.images` decodes it into an
-image request, which fails at the 422 admission check below only when the gate
-is off... rather: this module ALWAYS refuses when loaded while the gate is off
-it is simply never imported, and `state.images` then renders into the context
-JSON as ordinary data (same "non-list images still renders" semantics as the
-kev/openjev image layers - a list of strings is the claim; anything else is
-data).
+Gate-off semantics: with NIMBLE_IMAGES unset this module is never imported,
+and `state.images` renders into the context JSON as ordinary data - the same
+claim rule as the kev (4) / Open-Jev (6) image layers: a non-empty list of
+strings is an image claim; anything else (or no module loaded) is just data.
 """
 import base64
 import io
