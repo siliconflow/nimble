@@ -89,11 +89,18 @@ async def main():
                         max_input_tokens=MAX_PROMPT_TOKENS + 1,
                         max_total_input_tokens=32 * (MAX_PROMPT_TOKENS + 1),
                         max_concurrent_requests=4, max_concurrent_branches=32)
-    command = ["/opt/sglang/bin/python", "-m", "sglang.launch_server",
-               "--model-path", str(path), "--tokenizer-path", str(path),
-               "--host", "127.0.0.1", "--port", "30000",
-               # Qwen honors the config field; 0.5.19's CLI flag has a narrower allowlist.
-               "--json-model-override-args", '{"language_model_only": true}',
+    # Image channel (deploy pack): NIMBLE_IMAGES=1 drops language_model_only so the
+    # base's vision tower loads (~1.3GB extra on the 9B; re-check mem-fraction if
+    # OOM) and wraps the service with the image-aware flow. Off (default): the
+    # command and service are byte-identical to the stock deployment.
+    serve_images = os.environ.get("NIMBLE_IMAGES") == "1"
+    overrides = '{"language_model_only": true}'
+    base_flags = ["--model-path", str(path), "--tokenizer-path", str(path),
+                  "--host", "127.0.0.1", "--port", "30000"]
+    if not serve_images:
+        # Qwen honors the config field; 0.5.19's CLI flag has a narrower allowlist.
+        base_flags += ["--json-model-override-args", overrides]
+    command = ["/opt/sglang/bin/python", "-m", "sglang.launch_server", *base_flags,
                "--context-length", str(MAX_PROMPT_TOKENS + 1), "--dtype", "bfloat16",
                "--mem-fraction-static", "0.80", "--attention-backend", "flashinfer",
                "--mamba-radix-cache-strategy", "extra_buffer",
@@ -108,7 +115,14 @@ async def main():
             await wait_ready(backend, process, 1100)
             compiler = NimbleCompiler(AutoTokenizer.from_pretrained(path, local_files_only=True),
                                       max_prompt_tokens=MAX_PROMPT_TOKENS)
-            app = make_app(settings, EvaluationService(settings, compiler, backend))
+            service = EvaluationService(settings, compiler, backend)
+            if serve_images:
+                from .image_service import ImageSGLangClient, NimbleImageService
+                service = NimbleImageService(service, compiler.tokenizer,
+                                             ImageSGLangClient(settings, client),
+                                             max_prompt_tokens=MAX_PROMPT_TOKENS)
+                print("[images] service wrapped (NIMBLE_IMAGES=1) - channel open, untrained readout", flush=True)
+            app = make_app(settings, service)
             app.state.startup_seconds = round(time.monotonic() - started, 2)
             server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=8000, access_log=False))
             async def monitor():
